@@ -19,6 +19,9 @@ TODO for students:
 
 import socket
 import sys
+import concurrent.futures
+import argparse
+from tqdm import tqdm
 
 
 def scan_port(target, port, timeout=1.0):
@@ -34,19 +37,26 @@ def scan_port(target, port, timeout=1.0):
         bool: True if port is open, False otherwise
     """
     try:
-        # TODO: Create a socket
-        # TODO: Set timeout
-        # TODO: Try to connect to target:port
-        # TODO: Close the socket
-        # TODO: Return True if connection successful
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # Create socket
+        s.settimeout(1.0)
+        result = s.connect_ex((target,port)) # Returns 0 if successful
 
-        pass  # Remove this and implement
+        banner = "None"
+        if result == 0:
+            try:
+                banner = s.recv(1024).decode().strip()
+            except:
+                banner = "No Banner Received"
+
+        s.close()
+
+        return not result, banner
 
     except (socket.timeout, ConnectionRefusedError, OSError):
-        return False
+        return False, None
 
 
-def scan_range(target, start_port, end_port):
+def scan_range(target, start_port, end_port, threads):
     """
     Scan a range of ports on the target host
 
@@ -59,49 +69,65 @@ def scan_range(target, start_port, end_port):
         list: List of open ports
     """
     open_ports = []
+    ports = range(start_port, end_port + 1)
 
-    print(f"[*] Scanning {target} from port {start_port} to {end_port}")
+    print(f"[*] Scanning {target} from port {start_port} to {end_port} using {threads} workers.")
     print(f"[*] This may take a while...")
+    with tqdm(total=len(ports), desc=f"Scanning {target}", unit="port") as progbar:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as worker:
+            
+            # Assigns jobs to each worker
+            future_to_port = {worker.submit(scan_port, target, port): port for port in ports}
 
-    # TODO: Implement the scanning logic
-    # Hint: Loop through port range and call scan_port()
-    # Hint: Consider using threading for better performance
+            for future in concurrent.futures.as_completed(future_to_port):
+                progbar.update(1)
+                port = future_to_port[future]
+                try:
+                    is_open, banner = future.result()
+                    if is_open:
+                        tqdm.write(f"[!] Port {port}: open")
+                        open_ports.append((port, banner))
+                except Exception:
+                    pass # Worker found closed port
 
-    for port in range(start_port, end_port + 1):
-        # TODO: Scan this port
-        # TODO: If open, add to open_ports list
-        # TODO: Print progress (optional)
-        pass  # Remove this and implement
-
-    return open_ports
+    return sorted(open_ports, key=lambda x: x[0])
 
 
 def main():
     """Main function"""
-    # TODO: Parse command-line arguments
-    # TODO: Validate inputs
-    # TODO: Call scan_range()
-    # TODO: Display results
 
-    # Example usage (you should improve this):
-    if len(sys.argv) < 2:
-        print("Usage: python3 port_scanner_template.py <target>")
-        print("Example: python3 port_scanner_template.py 172.20.0.10")
-        sys.exit(1)
+    #python3 main.py --target 172.20.0.0/24 --ports 1-1000 --threads 16
 
-    target = sys.argv[1]
-    start_port = 1
-    end_port = 1024  # Scan first 1024 ports by default
+    parser = argparse.ArgumentParser(description="Port Scanner")
+    parser.add_argument("--target", required=True, help="Target IP or hostname")
+    parser.add_argument("--ports", default="1-1024", help="Port range (e.g., 1-1000)")
+    parser.add_argument("--threads", type=int, default=100, help="Number of workers")
 
-    print(f"[*] Starting port scan on {target}")
+    args = parser.parse_args()
 
-    open_ports = scan_range(target, start_port, end_port)
+    workers = args.threads
+    target = args.target
+    ports_arg = args.ports
+    if "-" in ports_arg:
+        parts = ports_arg.split("-")
+
+        start_port = int(parts[0])
+        end_port = int(parts[1])
+    else:
+        # Handle the case where the user only provides a single port
+        start_port = end_port = int(ports_arg)
+
+    print(f"[*] Starting port scan on {target} using {workers} workers")
+
+    open_ports = scan_range(target, start_port, end_port, workers)
 
     print(f"\n[+] Scan complete!")
+    print(f"{'PORT':<10} {'STATE':<10} {'SERVICE/BANNER'}")
+    print("-" * 50)
     print(f"[+] Found {len(open_ports)} open ports:")
-    for port in open_ports:
-        print(f"    Port {port}: open")
-
+    for port, banner in open_ports:
+        service_info = banner if banner else "Unknown Service"
+        print(f"{port:<10} {'open':<10} {service_info}")
 
 if __name__ == "__main__":
     main()

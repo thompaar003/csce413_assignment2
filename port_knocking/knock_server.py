@@ -5,6 +5,9 @@ import argparse
 import logging
 import socket
 import time
+import select
+import subprocess
+import threading
 
 DEFAULT_KNOCK_SEQUENCE = [1234, 5678, 9012]
 DEFAULT_PROTECTED_PORT = 2222
@@ -19,16 +22,37 @@ def setup_logging():
     )
 
 
-def open_protected_port(protected_port):
+def open_protected_port(ip_address, protected_port):
     """Open the protected port using firewall rules."""
-    # TODO: Use iptables/nftables to allow access to protected_port.
-    logging.info("TODO: Open firewall for port %s", protected_port)
+    command = [
+        "iptables", "-I", "INPUT",
+        "-s", ip_address,
+        "-p", "tcp",
+        "--dport", str(protected_port),
+        "-j", "ACCEPT"
+    ]
+    
+    try:
+        subprocess.run(command, check=True)
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Failed to open port: {e}")
 
 
-def close_protected_port(protected_port):
+def close_protected_port(ip_address, protected_port):
     """Close the protected port using firewall rules."""
-    # TODO: Remove firewall rules for protected_port.
-    logging.info("TODO: Close firewall for port %s", protected_port)
+    # -D (Delete) instead of -I (Insert)
+    command = [
+        "iptables", "-D", "INPUT",
+        "-s", ip_address,
+        "-p", "tcp",
+        "--dport", str(protected_port),
+        "-j", "ACCEPT"
+    ]
+    
+    try:
+        subprocess.run(command, check=True)
+    except subprocess.CalledProcessError as e:
+        logging.warning(f"Failed to close port: {e}")
 
 
 def listen_for_knocks(sequence, window_seconds, protected_port):
@@ -37,14 +61,80 @@ def listen_for_knocks(sequence, window_seconds, protected_port):
     logger.info("Listening for knocks: %s", sequence)
     logger.info("Protected port: %s", protected_port)
 
-    # TODO: Create UDP or TCP listeners for each knock port.
-    # TODO: Track each source IP and its progress through the sequence.
-    # TODO: Enforce timing window per sequence.
-    # TODO: On correct sequence, call open_protected_port().
-    # TODO: On incorrect sequence, reset progress.
+
+    sockets_to_watch = []
+    socket_port_map = {}
+    
+    for port_num in sequence:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        
+        try:
+            sock.bind(('0.0.0.0', port_num))
+            sockets_to_watch.append(sock)
+            socket_port_map[sock] = port_num
+        except OSError as e:
+            logger.error(f"Could not bind to port {port_num}: {e}")
+            return
+
+    client_state = {}
 
     while True:
-        time.sleep(1)
+        readable, _, _ = select.select(sockets_to_watch, [], [])
+
+        for sock in readable:
+            data, addr = sock.recvfrom(1024)
+            ip_address = addr[0]
+            knocked_port = socket_port_map[sock]
+            current_time = time.time()
+
+            if ip_address not in client_state:
+                client_state[ip_address] = [0, 0]
+
+            current_index = client_state[ip_address][0]
+            last_seen = client_state[ip_address][1]
+
+            if current_index > 0 and (current_time - last_seen > window_seconds):
+                logger.info(f"Timeout for {ip_address}. Resetting.")
+                current_index = 0
+
+            expected_port = sequence[current_index]
+
+            if knocked_port == expected_port:
+                current_index += 1
+                client_state[ip_address] = [current_index, current_time]
+                logger.info(f"Correct knock from {ip_address} on {knocked_port} (Stage {current_index}/{len(sequence)})")
+
+                if current_index == len(sequence):
+                    logger.info(f"Sequence complete for {ip_address}! Unlocking port.")
+                    
+                    t = threading.Thread(
+                        target=handle_door_cycle,
+                        args=(ip_address, protected_port)
+                    )
+                    t.start()
+                    
+                    client_state[ip_address] = [0, 0]
+            else:
+                logger.info(f"Wrong knock from {ip_address} on {knocked_port}. Resetting.")
+                client_state[ip_address] = [0, 0]
+                
+                if knocked_port == sequence[0]:
+                    client_state[ip_address] = [1, current_time]
+                    logger.info(f"Restarting sequence for {ip_address}")
+
+def handle_door_cycle(ip_address, protected_port, duration=30):
+    """
+    Opens the port, waits for 'duration' seconds, and then closes it.
+    This runs in a separate thread so it doesn't block the main loop.
+    """
+    open_protected_port(ip_address, protected_port)
+    
+    logging.info(f"Door open for {ip_address}. Closing in {duration} seconds...")
+    time.sleep(duration)
+    
+    close_protected_port(ip_address, protected_port)
 
 
 def parse_args():

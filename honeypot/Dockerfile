@@ -2,11 +2,17 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY honeypot.py .
+# Install dependencies
+RUN pip install paramiko
 
-# Create logs directory
-RUN mkdir -p /app/logs
+# Copy all files
+COPY . /app
 
+# Expose the honeypot port
 EXPOSE 22
 
-CMD ["python", "-u", "honeypot.py"]
+# Ensure logs directory exists
+RUN mkdir -p /app/logs
+
+# Run the honeypot
+CMD ["python3", "honeypot.py"]

@@ -1,14 +1,7 @@
-## MITM Starter Template
-
-This directory is a starter template for the MITM portion of the assignment.
-
-### What you need to implement
-- Capture traffic between the web app and database.
-- Analyze packets for sensitive data and explain the impact.
-- Record your findings.
-- Include evidence (pcap files or screenshots) alongside your report.
-
-### Getting started
-1. Run your capture workflow from this directory or the repo root.
-2. Save artifacts (pcap or screenshots) in this folder.
-3. Document everything.
+## MITM 
+- **sudo docker network ls** - gives us the bridge name for the docker network, which we can then use with tcpdump to listen to the traffic from the webapp to the database
+- **sudo tcpdump -i br-0555bd9df806 -A -s 0 'port 3306'** - This is the command that actually listens to the traffic and outputs it to the terminal, the output from this command can be seen in mitmlogs.png
+- We were able to clearly see the information sent from the database to the webapp which demonstrates how important it is to encrypt traffic.
+- Using this flag we can then capture flag 3 by using it as an authentication token to access a hidden service that we discovered on port 8888 using the port scanner. 
+- **http://172.20.0.21:8888/flag?token=FLAG{n3tw0rk_tr4ff1c_1s_n0t_s3cur3}**
+- Output from link: {"flag":"FLAG{p0rt_kn0ck1ng_4nd_h0n3yp0ts_s4v3_th3_d4y}","message":"Congratulations! You successfully chained your exploits!","next_steps":["Now implement port knocking to protect the SSH service","Deploy a honeypot using the starter template"],"steps_completed":["1. Developed a port scanner","2. Discovered this hidden API service on port 8888","3. Performed MITM attack on database traffic","4. Extracted FLAG{1} (the API token) from network packets","5. Used FLAG{1} to authenticate to this API","6. Retrieved FLAG{3}"],"success":true}

@@ -11,9 +11,7 @@ from logger import log_event, log_alert
 HOST_KEY_FILE = "/etc/ssh/ssh_host_rsa_key"
 PORT = 22
 
-# Generate a host key if it doesn't exist (for local testing mostly, Docker handles this)
 if not os.path.exists(HOST_KEY_FILE):
-    # Fallback/Test key generation - in production Dockerfile should handle this or mount it
     pass 
 
 class HoneyPotServer(paramiko.ServerInterface):
@@ -34,7 +32,6 @@ class HoneyPotServer(paramiko.ServerInterface):
                   username=username, password=password)
         
         # Simulate successful login for common credentials to encourage interaction
-        # or simple let everyone in for maximum data gathering
         return paramiko.AUTH_SUCCESSFUL
 
     def check_channel_pty_request(self, channel, term, width, height, pixelwidth, pixelheight, modes):
@@ -57,7 +54,6 @@ def handle_connection(client, addr):
         # Try to use a persistent key location in /app if possible, or fallback gracefully
         key_path = "/app/ssh_host_rsa_key"
         if not os.path.exists(key_path):
-             # Try /etc/ssh...
              if os.path.exists(HOST_KEY_FILE):
                  key_path = HOST_KEY_FILE
              else:
@@ -102,10 +98,7 @@ def handle_connection(client, addr):
                 recv = chan.recv(1024)
                 if not recv:
                     break
-                
-                # Echo back (simple pty simulation) - IMPORTANT: Do not echo newlines locally if client sends them?
-                # Actually, standard terminals echo locally often, but raw mode needs remote echo.
-                # Simplest is just to echo whatever is received.
+
                 data = recv.decode('utf-8', errors='ignore')
                 chan.send(data) 
                 
@@ -150,8 +143,6 @@ def handle_connection(client, addr):
                         else:
                              response = f"{cmd_line.split()[0]}: command not found\r\n"
                             
-                        # Send response (if any) then prompt
-                        # Need to ensure we send a newline before response if the user just hit enter
                         chan.send("\r\n" + response + prompt)
                     else:
                         # Empty line (just enter)

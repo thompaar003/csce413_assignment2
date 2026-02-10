@@ -164,11 +164,44 @@ def main():
     setup_logging()
 
     try:
+        initialize_firewall(args.protected_port)
         sequence = [int(port) for port in args.sequence.split(",")]
     except ValueError:
         raise SystemExit("Invalid sequence. Use comma-separated integers.")
 
     listen_for_knocks(sequence, args.window, args.protected_port)
+
+
+def initialize_firewall(protected_port):
+    """
+    Ensure the firewall is in a secure state on startup.
+    1. Flush existing rules (optional, but good for consistent state).
+    2. Add the DROP rule for the protected port.
+    """
+    logging.info("Initializing firewall...")
+    
+    # 1. Flush rules (be careful if you have other rules!)
+    # In this containerized environment, we assume we own the iptables.
+    try:
+        subprocess.run(["iptables", "-F"], check=True)
+        logging.info("Flushed existing iptables rules.")
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Failed to flush iptables: {e}")
+
+    # 2. Add the DROP rule
+    # -A INPUT -p tcp --dport <PORT> -j DROP
+    command = [
+        "iptables", "-A", "INPUT",
+        "-p", "tcp",
+        "--dport", str(protected_port),
+        "-j", "DROP"
+    ]
+    
+    try:
+        subprocess.run(command, check=True)
+        logging.info(f"Locked port {protected_port} (DROP rule added).")
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Failed to lock port {protected_port}: {e}")
 
 
 if __name__ == "__main__":

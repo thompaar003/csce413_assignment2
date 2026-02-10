@@ -41,7 +41,7 @@ services:
     volumes:
       - db_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pinsecure_password_2024"]
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pinsecure_password_2024" ]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -106,14 +106,11 @@ services:
     build:
       context: ./port_knocking
       network: host
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
     cap_add:
       - NET_ADMIN
-    networks:
-      vulnerable_network:
-        ipv4_address: 172.20.0.40
+    network_mode: "service:secret_ssh"
+    depends_on:
+      - secret_ssh
 
 networks:
   vulnerable_network:
